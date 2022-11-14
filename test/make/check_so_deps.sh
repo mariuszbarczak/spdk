@@ -101,6 +101,14 @@ function confirm_abi_deps() {
 	name = spdk_bs_opts
 [suppress_type]
 	name = spdk_app_opts
+# To be removed, comes from nvme_internal.h
+[suppress_type]
+	name = spdk_nvme_qpair
+# To be removed, comes from private part of FTL lib
+[suppress_type]
+	name = spdk_ftl_dev
+[suppress_type]
+	name = ftl_nv_cache_compactor
 EOF
 
 	for object in "$libdir"/libspdk_*.so; do
