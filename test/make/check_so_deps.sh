@@ -109,6 +109,8 @@ function confirm_abi_deps() {
 	name = spdk_ftl_dev
 [suppress_type]
 	name = ftl_nv_cache_compactor
+[suppress_type]
+	name = ftl_rq
 EOF
 
 	for object in "$libdir"/libspdk_*.so; do
