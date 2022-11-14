@@ -291,6 +291,22 @@ struct ftl_basic_rq {
 	} io;
 };
 
+static inline void
+ftl_rq_entry_loop_assert(struct ftl_rq *rq, struct ftl_rq_entry *entry, uint32_t count)
+{
+	assert(entry >= rq->entries);
+	assert(((uintptr_t)entry - (uintptr_t)rq->entries) % sizeof(*entry) == 0);
+	assert(count <= rq->num_blocks);
+}
+
+#define FTL_RQ_ENTRY_LOOP_FROM(rq, from, entry, count)		\
+	(entry) = (from);					\
+	ftl_rq_entry_loop_assert(rq, entry, count);		\
+	for (;(entry) < (&(rq)->entries[count]); (entry)++)
+
+#define FTL_RQ_ENTRY_LOOP(rq, entry, count)			\
+	FTL_RQ_ENTRY_LOOP_FROM(rq, rq->entries, entry, count)
+
 void ftl_io_fail(struct ftl_io *io, int status);
 void ftl_io_clear(struct ftl_io *io);
 void ftl_io_inc_req(struct ftl_io *io);
