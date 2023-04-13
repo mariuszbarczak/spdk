@@ -15,9 +15,10 @@ struct ftl_mngt_process;
  * @brief NV Cache device features and capabilities
  */
 struct ftl_nv_cache_device_features {
-	/*
-	 * The placeholder for NV Cache device features. It will be filled in the future.
+	/**
+	 * @brief NV Cache device supports variable sector size
 	 */
+	bool vss;
 };
 
 /**

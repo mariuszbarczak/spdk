@@ -35,6 +35,7 @@ is_bdev_compatible(struct spdk_ftl_dev *dev, struct spdk_bdev *bdev)
 struct ftl_nv_cache_device_desc nvc_bdev_vss = {
 	.name = "bdev",
 	.features = {
+		.vss = true,
 	},
 	.ops = {
 		.is_bdev_compatible = is_bdev_compatible,
