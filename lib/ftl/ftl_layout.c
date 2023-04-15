@@ -129,6 +129,10 @@ set_region_bdev_nvc(struct ftl_layout_region *reg, struct spdk_ftl_dev *dev)
 	reg->bdev_desc = dev->nv_cache.bdev_desc;
 	reg->ioch = dev->nv_cache.cache_ioch;
 	reg->vss_blksz = dev->nv_cache.md_size;
+
+	if (dev->nv_cache.nvc_desc->ops.tune_layout_region) {
+		dev->nv_cache.nvc_desc->ops.tune_layout_region(dev, reg);
+	}
 }
 
 static void

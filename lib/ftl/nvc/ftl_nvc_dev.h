@@ -10,6 +10,7 @@
 
 struct spdk_ftl_dev;
 struct ftl_mngt_process;
+struct ftl_layout_region;
 
 /**
  * @brief NV Cache device features and capabilities
@@ -35,6 +36,14 @@ struct ftl_nv_cache_device_ops {
 	 * @retval false if bdev is not valid for NV Cache device
 	 */
 	bool (*is_bdev_compatible)(struct spdk_ftl_dev *dev, struct spdk_bdev *bdev);
+
+	/**
+	 * @brief Do additional initialization on layout region
+	 *
+	 * @param dev ftl device
+	 * @param region layout region to be initialized
+	 */
+	void (*tune_layout_region)(struct spdk_ftl_dev *dev, struct ftl_layout_region *region);
 };
 
 /**
