@@ -44,6 +44,13 @@ struct ftl_nv_cache_device_ops {
 	 * @param region layout region to be initialized
 	 */
 	void (*tune_layout_region)(struct spdk_ftl_dev *dev, struct ftl_layout_region *region);
+
+	/**
+	 * @brief Process NV Cache device
+	 *
+	 * @param dev ftl device
+	 */
+	void (*process)(struct spdk_ftl_dev *dev);
 };
 
 /**
