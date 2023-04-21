@@ -41,6 +41,8 @@ is_buffer_needed(enum ftl_layout_region_type type)
 	case FTL_LAYOUT_REGION_TYPE_L2P:
 #endif
 	case FTL_LAYOUT_REGION_TYPE_TRIM_MD_MIRROR:
+	case FTL_LAYOUT_REGION_TYPE_P2L_LOG_IO_MIN:
+	case FTL_LAYOUT_REGION_TYPE_P2L_LOG_IO_MAX:
 		return false;
 
 	default:

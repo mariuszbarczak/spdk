@@ -75,6 +75,16 @@ dump_region(struct spdk_ftl_dev *dev, struct ftl_layout_region *region)
 		      blocks2mib(region->current.blocks));
 }
 
+static bool
+is_region_disabled(struct ftl_layout_region *region)
+{
+	if (region->current.blocks == 0 && region->current.offset == FTL_ADDR_INVALID) {
+		return true;
+	}
+
+	return false;
+}
+
 int
 ftl_validate_regions(struct spdk_ftl_dev *dev, struct ftl_layout *layout)
 {
@@ -85,8 +95,16 @@ ftl_validate_regions(struct spdk_ftl_dev *dev, struct ftl_layout *layout)
 	for (i = 0; i < FTL_LAYOUT_REGION_TYPE_MAX; i++) {
 		struct ftl_layout_region *r1 = &layout->region[i];
 
+		if (is_region_disabled(r1)) {
+			continue;
+		}
+
 		for (j = 0; j < FTL_LAYOUT_REGION_TYPE_MAX; j++) {
 			struct ftl_layout_region *r2 = &layout->region[j];
+
+			if (is_region_disabled(r2)) {
+				continue;
+			}
 
 			if (r1->bdev_desc != r2->bdev_desc) {
 				continue;
@@ -141,6 +159,58 @@ set_region_bdev_btm(struct ftl_layout_region *reg, struct spdk_ftl_dev *dev)
 	reg->bdev_desc = dev->base_bdev_desc;
 	reg->ioch = dev->base_ioch;
 	reg->vss_blksz = 0;
+}
+
+static int setup_layout_p2l_log_io(struct spdk_ftl_dev *dev, uint64_t *offset)
+{
+	struct ftl_layout *layout = &dev->layout;
+	struct ftl_layout_region *region;
+	int region_type;
+
+	static const char *p2l_io_log_region_name[] = {
+		"p2l_log_io0",
+		"p2l_log_lo1"
+	};
+
+	SPDK_STATIC_ASSERT(SPDK_COUNTOF(p2l_io_log_region_name) == FTL_LAYOUT_REGION_TYPE_P2L_LOG_IO_COUNT,
+			   "Incorrect # of P2L IO log region names");
+	for (region_type = FTL_LAYOUT_REGION_TYPE_P2L_LOG_IO_MIN;
+	     region_type <= FTL_LAYOUT_REGION_TYPE_P2L_LOG_IO_MAX;
+	     region_type++) {
+		if (*offset >= layout->nvc.total_blocks) {
+			goto error;
+		}
+
+		/*
+		 * This region is optional, initially we deniable it (setting number of blocks to zero),
+		 * but the NV cache device can enable it by changing value of blocks
+		 */
+		region = &layout->region[region_type];
+		region->type = region_type;
+		region->name = p2l_io_log_region_name[region_type - FTL_LAYOUT_REGION_TYPE_P2L_LOG_IO_MIN];
+		region->current.version = 0;
+		region->prev.version = 0;
+		region->current.offset = *offset;
+		region->current.blocks = 0;
+		region->entry_size = 0;
+		region->num_entries = 0;
+		set_region_bdev_nvc(region, dev);
+
+		if (region->current.blocks) {
+			FTL_NOTICELOG(dev, "Enabling P2L IO log region %s\n", region->name);
+			*offset += region->current.blocks;
+			region->entry_size = 1;
+			region->num_entries = region->current.blocks;
+		} else {
+			/* Region wasn't enabled by the NV cache device, set the offset to invalid value */
+			region->current.offset = FTL_ADDR_INVALID;
+		}
+	}
+
+	return 0;
+
+error:
+	return -EINVAL;
 }
 
 static int
@@ -231,6 +301,10 @@ setup_layout_nvc(struct spdk_ftl_dev *dev)
 		offset += region->current.blocks;
 	}
 
+	if (setup_layout_p2l_log_io(dev, &offset)) {
+		goto error;
+	}
+
 	/*
 	 * Initialize trim metadata region
 	 */
@@ -271,8 +345,6 @@ setup_layout_nvc(struct spdk_ftl_dev *dev)
 	}
 
 	left = layout->nvc.total_blocks - offset;
-	layout->nvc.chunk_data_blocks =
-		FTL_NV_CACHE_CHUNK_DATA_SIZE(ftl_get_num_blocks_in_band(dev)) / FTL_BLOCK_SIZE;
 	layout->nvc.chunk_meta_size = FTL_NV_CACHE_CHUNK_MD_SIZE;
 	layout->nvc.chunk_count = (left * FTL_BLOCK_SIZE) /
 				  FTL_NV_CACHE_CHUNK_SIZE(ftl_get_num_blocks_in_band(dev));
@@ -449,6 +521,9 @@ ftl_layout_setup(struct spdk_ftl_dev *dev)
 
 	/* Setup P2L ckpt */
 	layout->p2l.ckpt_pages = spdk_divide_round_up(ftl_get_num_blocks_in_band(dev), dev->xfer_size);
+
+	layout->nvc.chunk_data_blocks =
+		FTL_NV_CACHE_CHUNK_DATA_SIZE(ftl_get_num_blocks_in_band(dev)) / FTL_BLOCK_SIZE;
 
 	if (setup_layout_nvc(dev)) {
 		return -EINVAL;
