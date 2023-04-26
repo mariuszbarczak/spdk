@@ -126,6 +126,8 @@ union ftl_md_vss {
 	struct {
 		uint64_t	seq_id;
 		uint32_t	p2l_checksum;
+		uint32_t	reserved;
+		uint64_t	count;
 	} p2l_ckpt;
 
 	struct {
