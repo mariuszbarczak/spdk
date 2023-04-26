@@ -65,7 +65,7 @@ blocks_region(struct spdk_ftl_dev *dev, uint64_t bytes)
 static void
 dump_region(struct spdk_ftl_dev *dev, struct ftl_layout_region *region)
 {
-	assert(!(region->current.offset % superblock_region_blocks(dev)));
+	assert(region->current.offset == FTL_ADDR_INVALID || !(region->current.offset % superblock_region_blocks(dev)));
 	assert(!(region->current.blocks % superblock_region_blocks(dev)));
 
 	FTL_NOTICELOG(dev, "Region %s\n", region->name);
