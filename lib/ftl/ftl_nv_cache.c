@@ -1075,7 +1075,7 @@ ftl_nv_cache_write_complete(struct ftl_io *io, bool success)
 {
 	if (spdk_unlikely(!success)) {
 		FTL_ERRLOG(io->dev, "Non-volatile cache write failed at %"PRIx64"\n",
-				io->addr);
+			   io->addr);
 		io->status = -EIO;
 		ftl_nv_cache_submit_cb_done(io);
 		return;
@@ -1651,6 +1651,10 @@ ftl_chunk_open(struct ftl_nv_cache_chunk *chunk)
 	assert(chunk->md->write_pointer == 0);
 	assert(chunk->md->blocks_written == 0);
 
+	if (dev->nv_cache.nvc_desc->ops.on_chunk_open) {
+		dev->nv_cache.nvc_desc->ops.on_chunk_open(dev, chunk);
+	}
+
 	memcpy(p2l_map->chunk_dma_md, chunk->md, region->entry_size * FTL_BLOCK_SIZE);
 	p2l_map->chunk_dma_md->state = FTL_CHUNK_STATE_OPEN;
 	p2l_map->chunk_dma_md->p2l_map_checksum = 0;
@@ -1738,6 +1742,10 @@ ftl_chunk_close(struct ftl_nv_cache_chunk *chunk)
 
 	assert(chunk->md->write_pointer == chunk_tail_md_offset(chunk->nv_cache));
 	brq->io.addr = chunk->offset + chunk->md->write_pointer;
+
+	if (dev->nv_cache.nvc_desc->ops.on_chunk_close) {
+		dev->nv_cache.nvc_desc->ops.on_chunk_close(dev, chunk);
+	}
 
 	ftl_chunk_basic_rq_write(chunk, brq);
 }

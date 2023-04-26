@@ -12,6 +12,7 @@
 
 #include "ftl_io.h"
 #include "ftl_utils.h"
+#include "ftl_internal.h"
 #include "nvc/ftl_nvc_dev.h"
 
 /*
@@ -86,8 +87,11 @@ struct ftl_nv_cache_chunk_md {
 	/* CRC32 checksum of the associated P2L map when chunk is in closed state */
 	uint32_t p2l_map_checksum;
 
+	/* P2L IO log type */
+	enum ftl_layout_region_type p2l_log_type;
+
 	/* Reserved */
-	uint8_t reserved[4052];
+	uint8_t reserved[4048];
 } __attribute__((packed));
 
 #define FTL_NV_CACHE_CHUNK_MD_SIZE sizeof(struct ftl_nv_cache_chunk_md)
@@ -121,6 +125,9 @@ struct ftl_nv_cache_chunk {
 
 	/* For writing metadata */
 	struct ftl_md_io_entry_ctx md_persist_entry_ctx;
+
+	/* P2L Log for IOs */
+	struct ftl_p2l_log *p2l_log;
 };
 
 struct ftl_nv_cache_compactor {
