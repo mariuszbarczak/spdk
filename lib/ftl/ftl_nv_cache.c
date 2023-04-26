@@ -1610,6 +1610,8 @@ static void
 chunk_open_cb(int status, void *ctx)
 {
 	struct ftl_nv_cache_chunk *chunk = (struct ftl_nv_cache_chunk *)ctx;
+	struct ftl_nv_cache *nv_cache = chunk->nv_cache;
+	struct spdk_ftl_dev *dev = SPDK_CONTAINEROF(nv_cache, struct spdk_ftl_dev, nv_cache);
 
 	if (spdk_unlikely(status)) {
 #ifdef SPDK_FTL_RETRY_ON_ERROR
@@ -1621,6 +1623,9 @@ chunk_open_cb(int status, void *ctx)
 	}
 
 	chunk->md->state = FTL_CHUNK_STATE_OPEN;
+	if (nv_cache->nvc_desc->ops.on_chunk_opened) {
+		nv_cache->nvc_desc->ops.on_chunk_opened(dev, chunk);
+	}
 }
 
 static void
@@ -1659,6 +1664,8 @@ static void
 chunk_close_cb(int status, void *ctx)
 {
 	struct ftl_nv_cache_chunk *chunk = (struct ftl_nv_cache_chunk *)ctx;
+	struct ftl_nv_cache *nv_cache = chunk->nv_cache;
+	struct spdk_ftl_dev *dev = SPDK_CONTAINEROF(nv_cache, struct spdk_ftl_dev, nv_cache);
 
 	assert(chunk->md->write_pointer == chunk->nv_cache->chunk_blocks);
 
@@ -1676,6 +1683,9 @@ chunk_close_cb(int status, void *ctx)
 		chunk->nv_cache->last_seq_id = chunk->md->close_seq_id;
 
 		chunk->md->state = FTL_CHUNK_STATE_CLOSED;
+		if (nv_cache->nvc_desc->ops.on_chunk_closed) {
+			nv_cache->nvc_desc->ops.on_chunk_closed(dev, chunk);
+		}
 	} else {
 #ifdef SPDK_FTL_RETRY_ON_ERROR
 		ftl_md_persist_entry_retry(&chunk->md_persist_entry_ctx);

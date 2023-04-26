@@ -12,6 +12,7 @@ struct spdk_ftl_dev;
 struct ftl_mngt_process;
 struct ftl_layout_region;
 struct ftl_io;
+struct ftl_nv_cache_chunk;
 
 /**
  * @brief NV Cache device features and capabilities
@@ -42,6 +43,22 @@ struct ftl_nv_cache_device_ops {
 	 * @param dev ftl device
 	 */
 	void (*deinit)(struct spdk_ftl_dev *dev);
+
+	/**
+	 * @brief Inform NV cache device that chunk has been opened
+	 *
+	 * @param dev ftl device
+	 * @param chunk chunk being opened
+	 */
+	void (*on_chunk_opened)(struct spdk_ftl_dev *dev, struct ftl_nv_cache_chunk *chunk);
+
+	/**
+	 * @brief Inform NV cache device that chunk has been closed
+	 *
+	 * @param dev ftl device
+	 * @param chunk chunk being closed
+	 */
+	void (*on_chunk_closed)(struct spdk_ftl_dev *dev, struct ftl_nv_cache_chunk *chunk);
 
 	/**
 	 * @brief Check if block device is valid for NV Cache device
