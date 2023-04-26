@@ -6,6 +6,24 @@
 #include "ftl_core.h"
 #include "ftl_layout.h"
 
+static int
+init(struct spdk_ftl_dev *dev)
+{
+	int rc;
+
+	rc = ftl_p2l_log_init(dev);
+	if (rc) {
+		return 0;
+	}
+
+	return 0;
+}
+
+static void deinit(struct spdk_ftl_dev *dev)
+{
+	ftl_p2l_log_deinit(dev);
+}
+
 static bool
 is_bdev_compatible(struct spdk_ftl_dev *dev, struct spdk_bdev *bdev)
 {
@@ -28,6 +46,12 @@ tune_layout_region(struct spdk_ftl_dev *dev, struct ftl_layout_region *region)
 {
 	/* This device doesn't support VSS, disable it */
 	region->vss_blksz = 0;
+
+	if (region->type >= FTL_LAYOUT_REGION_TYPE_P2L_LOG_IO_MIN &&
+	    region->type <= FTL_LAYOUT_REGION_TYPE_P2L_LOG_IO_MAX) {
+		region->current.blocks = ftl_p2l_log_get_md_blocks_required(dev, 1,
+					 dev->layout.nvc.chunk_data_blocks);
+	}
 }
 
 struct ftl_nv_cache_device_desc nvc_bdev_non_vss = {
@@ -36,6 +60,8 @@ struct ftl_nv_cache_device_desc nvc_bdev_non_vss = {
 		.vss = false,
 	},
 	.ops = {
+		.init = init,
+		.deinit = deinit,
 		.is_bdev_compatible = is_bdev_compatible,
 		.tune_layout_region = tune_layout_region,
 	}

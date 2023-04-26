@@ -3,7 +3,6 @@
  *   All rights reserved.
  */
 
-
 #include "spdk/bdev.h"
 #include "spdk/bdev_module.h"
 #include "spdk/ftl.h"
@@ -203,7 +202,12 @@ ftl_nv_cache_init(struct spdk_ftl_dev *dev)
 	nv_cache->chunk_free_target = spdk_divide_round_up(nv_cache->chunk_count *
 				      dev->conf.nv_cache.chunk_free_target,
 				      100);
-	return 0;
+
+	if (nv_cache->nvc_desc->ops.init) {
+		return nv_cache->nvc_desc->ops.init(dev);
+	} else {
+		return 0;
+	}
 }
 
 void
@@ -211,6 +215,10 @@ ftl_nv_cache_deinit(struct spdk_ftl_dev *dev)
 {
 	struct ftl_nv_cache *nv_cache = &dev->nv_cache;
 	struct ftl_nv_cache_compactor *compactor;
+
+	if (nv_cache->nvc_desc->ops.deinit) {
+		nv_cache->nvc_desc->ops.deinit(dev);
+	}
 
 	while (!TAILQ_EMPTY(&nv_cache->compactor_list)) {
 		compactor = TAILQ_FIRST(&nv_cache->compactor_list);
