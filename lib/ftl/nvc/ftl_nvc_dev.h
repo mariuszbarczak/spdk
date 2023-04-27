@@ -11,6 +11,7 @@
 struct spdk_ftl_dev;
 struct ftl_mngt_process;
 struct ftl_layout_region;
+struct ftl_io;
 
 /**
  * @brief NV Cache device features and capabilities
@@ -67,6 +68,14 @@ struct ftl_nv_cache_device_ops {
 	 * @param dev ftl device
 	 */
 	void (*process)(struct spdk_ftl_dev *dev);
+
+	/**
+	 * @brief NV Cache write
+	 *
+	 * @param io ftl IO
+	 *
+	 */
+	void (*write)(struct ftl_io *io);
 };
 
 /**
