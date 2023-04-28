@@ -7,6 +7,7 @@
 #define FTL_MD_H
 
 #include "spdk/stdinc.h"
+#include "spdk/bdev.h"
 
 #include "ftl_layout.h"
 

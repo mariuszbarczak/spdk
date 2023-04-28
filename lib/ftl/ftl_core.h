@@ -231,7 +231,9 @@ static inline uint32_t
 ftl_get_write_unit_size(struct spdk_bdev *bdev)
 {
 	/* Full block of P2L map worth of xfer_sz is needed for P2L checkpointing */
-	return FTL_NUM_LBA_IN_BLOCK;
+	/* Emulate VSS for P2L pages by increasing their amount
+	   TODO: revert this division and make the calculation smarter for P2L */
+	return FTL_NUM_LBA_IN_BLOCK / P2L_NO_VSS_COUNT_INCREASE;
 }
 
 static inline struct spdk_thread *

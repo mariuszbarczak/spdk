@@ -38,15 +38,16 @@ ftl_p2l_ckpt_new(struct spdk_ftl_dev *dev, int region_type)
 		return NULL;
 	}
 
-	ckpt->vss_md_page = ftl_md_vss_buf_alloc(&dev->layout.region[region_type],
-			    dev->layout.region[region_type].num_entries);
 	ckpt->layout_region = &dev->layout.region[region_type];
 	ckpt->md = dev->layout.md[region_type];
-	ckpt->num_pages = spdk_divide_round_up(ftl_get_num_blocks_in_band(dev), FTL_NUM_LBA_IN_BLOCK);
-
-	if (!ckpt->vss_md_page) {
-		free(ckpt);
-		return NULL;
+	ckpt->num_pages = spdk_divide_round_up(ftl_get_num_blocks_in_band(dev), dev->xfer_size);
+	if (dev->nv_cache.md_size) {
+		ckpt->vss_md_page = ftl_md_vss_buf_alloc(&dev->layout.region[region_type],
+							 dev->layout.region[region_type].num_entries);
+		if (!ckpt->vss_md_page) {
+			free(ckpt);
+			return NULL;
+		}
 	}
 
 #if defined(DEBUG)
@@ -158,10 +159,10 @@ void
 ftl_p2l_ckpt_issue(struct ftl_rq *rq)
 {
 	struct ftl_rq_entry *iter = rq->entries;
+	struct spdk_ftl_dev *dev = rq->dev;
 	ftl_addr addr = rq->io.addr;
 	struct ftl_p2l_ckpt *ckpt = NULL;
-	struct ftl_p2l_ckpt_page *map_page;
-	union ftl_md_vss *md_page;
+	struct ftl_p2l_ckpt_page_no_vss *map_page;
 	struct ftl_band *band;
 	uint64_t band_offs, p2l_map_page_no, i;
 
@@ -169,23 +170,20 @@ ftl_p2l_ckpt_issue(struct ftl_rq *rq)
 	band = rq->io.band;
 	ckpt = band->p2l_map.p2l_ckpt;
 	assert(ckpt);
+	assert(rq->num_blocks == dev->xfer_size);
 
 	/* Derive the P2L map page no */
-	band_offs =  ftl_band_block_offset_from_addr(band, rq->io.addr);
-	p2l_map_page_no = band_offs / FTL_NUM_LBA_IN_BLOCK;
-	assert((band_offs + rq->num_blocks - 1) / FTL_NUM_LBA_IN_BLOCK == p2l_map_page_no);
+	band_offs = ftl_band_block_offset_from_addr(band, rq->io.addr);
+	p2l_map_page_no = band_offs / dev->xfer_size;
+	assert((band_offs + rq->num_blocks - 1) / FTL_NUM_LBA_IN_BLOCK == band_offs / FTL_NUM_LBA_IN_BLOCK);
 	assert(p2l_map_page_no < ckpt->num_pages);
 
-	/* Get the corresponding P2L map page - the underlying stored data is the same as in the end metadata of band P2L (ftl_p2l_map_entry),
-	 * however we're interested in a whole page (4KiB) worth of content
+	/* Get the corresponding P2L map page - the underlying stored data has the same entries as in the end metadata of band P2L (ftl_p2l_map_entry),
+	 * however we're interested in a whole page (4KiB) worth of content and submit it in two requests with additional metadata
 	 */
-	map_page = ((struct ftl_p2l_ckpt_page *)band->p2l_map.band_map) + p2l_map_page_no;
+	map_page = ftl_md_get_buffer(ckpt->md);
 	assert(map_page);
-
-	/* Set up the md */
-	md_page = &ckpt->vss_md_page[p2l_map_page_no];
-	md_page->p2l_ckpt.seq_id = band->md->seq;
-	assert(rq->num_blocks == FTL_NUM_LBA_IN_BLOCK);
+	map_page += p2l_map_page_no;
 
 	/* Update the band P2L map */
 	for (i = 0; i < rq->num_blocks; i++, iter++) {
@@ -194,18 +192,20 @@ ftl_p2l_ckpt_issue(struct ftl_rq *rq)
 			assert(!ftl_addr_in_nvc(rq->dev, addr));
 			ftl_band_set_p2l(band, iter->lba, addr, iter->seq_id);
 		}
+		map_page->map[i].lba = iter->lba;
+		map_page->map[i].seq_id = iter->seq_id;
 		addr = ftl_band_next_addr(band, addr, 1);
 	}
+
+	/* Set up the md */
+	map_page->metadata.p2l_ckpt.seq_id = band->md->seq;
 
 #if defined(DEBUG)
 	ftl_bitmap_set(ckpt->bmp, p2l_map_page_no);
 #endif
-
-	md_page->p2l_ckpt.p2l_checksum = spdk_crc32c_update(map_page,
-					 rq->num_blocks * sizeof(struct ftl_p2l_map_entry), 0);
+	map_page->metadata.p2l_ckpt.p2l_checksum = spdk_crc32c_update(map_page->map, rq->num_blocks * sizeof(struct ftl_p2l_map_entry), 0);
 	/* Save the P2L map entry */
-	ftl_md_persist_entry(ckpt->md, p2l_map_page_no, map_page, md_page, ftl_p2l_ckpt_issue_end,
-			     rq, &rq->md_persist_entry_ctx);
+	ftl_md_persist_entry(ckpt->md, p2l_map_page_no, map_page, NULL, ftl_p2l_ckpt_issue_end, rq, &rq->md_persist_entry_ctx);
 }
 
 #if defined(DEBUG)
@@ -225,13 +225,13 @@ ftl_p2l_validate_ckpt(struct ftl_band *band)
 {
 	struct ftl_p2l_ckpt *ckpt = band->p2l_map.p2l_ckpt;
 	uint64_t num_blks_tail_md = ftl_tail_md_num_blocks(band->dev);
-	uint64_t num_pages_tail_md = num_blks_tail_md / FTL_NUM_LBA_IN_BLOCK;
+	uint64_t num_pages_tail_md = num_blks_tail_md / band->dev->xfer_size;
 
 	if (!ckpt) {
 		return;
 	}
 
-	assert(num_blks_tail_md % FTL_NUM_LBA_IN_BLOCK == 0);
+	assert(num_blks_tail_md % band->dev->xfer_size == 0);
 
 	/* all data pages written */
 	ftl_p2l_validate_pages(band, ckpt,
@@ -294,21 +294,24 @@ static void
 ftl_mngt_persist_band_p2l(struct ftl_mngt_process *mngt, struct ftl_p2l_sync_ctx *ctx)
 {
 	struct ftl_band *band = ctx->band;
-	union ftl_md_vss *md_page;
-	struct ftl_p2l_ckpt_page *map_page;
+	struct ftl_p2l_ckpt_page_no_vss *map_page;
+	struct ftl_p2l_ckpt_page *band_page;
 	struct ftl_p2l_ckpt *ckpt;
-
+	struct spdk_ftl_dev *dev = band->dev;
+	uint64_t band_offs = dev->xfer_size * ctx->page_start;
 	ckpt = band->p2l_map.p2l_ckpt;
 
-	map_page = ((struct ftl_p2l_ckpt_page *)band->p2l_map.band_map) + ctx->page_start;
+	map_page = ftl_md_get_buffer(ckpt->md);
+	assert(map_page);
+	map_page += ctx->page_start;
+	band_page = ((struct ftl_p2l_ckpt_page *)band->p2l_map.band_map) + band_offs / FTL_NUM_LBA_IN_BLOCK;
+	memcpy(map_page->map, ((struct ftl_p2l_map_entry *)band_page) + band_offs % FTL_NUM_LBA_IN_BLOCK, dev->xfer_size * sizeof(struct ftl_p2l_map_entry));
 
-	md_page = &ckpt->vss_md_page[ctx->page_start];
-	md_page->p2l_ckpt.seq_id = band->md->seq;
-	md_page->p2l_ckpt.p2l_checksum = spdk_crc32c_update(map_page,
-					 FTL_NUM_LBA_IN_BLOCK * sizeof(struct ftl_p2l_map_entry), 0);
+	map_page->metadata.p2l_ckpt.seq_id = band->md->seq;
+	map_page->metadata.p2l_ckpt.p2l_checksum = spdk_crc32c_update(map_page->map, dev->xfer_size * sizeof(struct ftl_p2l_map_entry), 0);
 
 	/* Save the P2L map entry */
-	ftl_md_persist_entry(ckpt->md, ctx->page_start, map_page, md_page,
+	ftl_md_persist_entry(ckpt->md, ctx->page_start, map_page, NULL,
 			     ftl_p2l_ckpt_persist_end, mngt, &band->md_persist_entry_ctx);
 }
 
@@ -336,7 +339,7 @@ ftl_mngt_persist_bands_p2l(struct ftl_mngt_process *mngt)
 	}
 
 	band_offs = ftl_band_block_offset_from_addr(band, band->md->iter.addr);
-	p2l_map_page_no = band_offs / FTL_NUM_LBA_IN_BLOCK;
+	p2l_map_page_no = band_offs / band->dev->xfer_size;
 
 	ctx->page_start = 0;
 	ctx->page_end = p2l_map_page_no;
@@ -357,12 +360,12 @@ ftl_mngt_p2l_ckpt_get_seq_id(struct spdk_ftl_dev *dev, int md_region)
 {
 	struct ftl_layout *layout = &dev->layout;
 	struct ftl_md *md = layout->md[md_region];
-	union ftl_md_vss *page_md_buf = ftl_md_get_vss_buffer(md);
+	struct ftl_p2l_ckpt_page_no_vss *page = ftl_md_get_buffer(md);
 	uint64_t page_no, seq_id = 0;
 
-	for (page_no = 0; page_no < layout->p2l.ckpt_pages; page_no++, page_md_buf++) {
-		if (seq_id < page_md_buf->p2l_ckpt.seq_id) {
-			seq_id = page_md_buf->p2l_ckpt.seq_id;
+	for (page_no = 0; page_no < layout->p2l.ckpt_pages; page_no++, page++) {
+		if (seq_id < page->metadata.p2l_ckpt.seq_id) {
+			seq_id = page->metadata.p2l_ckpt.seq_id;
 		}
 	}
 	return seq_id;
@@ -373,9 +376,9 @@ ftl_mngt_p2l_ckpt_restore(struct ftl_band *band, uint32_t md_region, uint64_t se
 {
 	struct ftl_layout *layout = &band->dev->layout;
 	struct ftl_md *md = layout->md[md_region];
-	union ftl_md_vss *page_md_buf = ftl_md_get_vss_buffer(md);
-	struct ftl_p2l_ckpt_page *page = ftl_md_get_buffer(md);
+	struct ftl_p2l_ckpt_page_no_vss *page = ftl_md_get_buffer(md);
 	struct ftl_p2l_ckpt_page *map_page;
+	struct spdk_ftl_dev *dev = band->dev;
 	uint64_t page_no, page_max = 0;
 	bool page_found = false;
 
@@ -389,28 +392,29 @@ ftl_mngt_p2l_ckpt_restore(struct ftl_band *band, uint32_t md_region, uint64_t se
 		return -EINVAL;
 	}
 
-	for (page_no = 0; page_no < layout->p2l.ckpt_pages; page_no++, page++, page_md_buf++) {
-		if (page_md_buf->p2l_ckpt.seq_id != seq_id) {
+	for (page_no = 0; page_no < layout->p2l.ckpt_pages; page_no++, page++) {
+		uint64_t band_offs = dev->xfer_size * page_no;
+		if (page->metadata.p2l_ckpt.seq_id != seq_id) {
 			continue;
 		}
 
 		page_max = page_no;
 		page_found = true;
 
-		/* Get the corresponding P2L map page - the underlying stored data is the same as in the end metadata of band P2L (ftl_p2l_map_entry),
-		 * however we're interested in a whole page (4KiB) worth of content
+		/* Get the corresponding P2L map page
 		 */
-		map_page = ((struct ftl_p2l_ckpt_page *)band->p2l_map.band_map) + page_no;
 
-		if (page_md_buf->p2l_ckpt.p2l_checksum &&
-		    page_md_buf->p2l_ckpt.p2l_checksum != spdk_crc32c_update(page,
-				    FTL_NUM_LBA_IN_BLOCK * sizeof(struct ftl_p2l_map_entry), 0)) {
+		map_page = ((struct ftl_p2l_ckpt_page *)band->p2l_map.band_map) + band_offs / FTL_NUM_LBA_IN_BLOCK;
+
+		if (page->metadata.p2l_ckpt.p2l_checksum &&
+		    page->metadata.p2l_ckpt.p2l_checksum != spdk_crc32c_update(page->map, dev->xfer_size * sizeof(struct ftl_p2l_map_entry), 0)) {
 			ftl_stats_crc_error(band->dev, FTL_STATS_TYPE_MD_NV_CACHE);
 			return -EINVAL;
 		}
 
 		/* Restore the page from P2L checkpoint */
-		*map_page = *page;
+
+		memcpy(((struct ftl_p2l_map_entry*)map_page) + band_offs % FTL_NUM_LBA_IN_BLOCK, page->map, dev->xfer_size * sizeof(struct ftl_p2l_map_entry));
 	}
 
 	assert(page_found);
@@ -424,7 +428,7 @@ ftl_mngt_p2l_ckpt_restore(struct ftl_band *band, uint32_t md_region, uint64_t se
 
 #ifdef DEBUG
 	/* Set check point valid map for validation */
-	struct ftl_p2l_ckpt *ckpt = band->p2l_map.p2l_ckpt ;
+	struct ftl_p2l_ckpt *ckpt = band->p2l_map.p2l_ckpt;
 	for (uint64_t i = 0; i <= page_max; i++) {
 		ftl_bitmap_set(ckpt->bmp, i);
 	}
@@ -465,19 +469,19 @@ ftl_mngt_p2l_ckpt_restore_clean(struct ftl_band *band)
 {
 	struct spdk_ftl_dev *dev = band->dev;
 	struct ftl_layout *layout = &dev->layout;
-	struct ftl_p2l_ckpt_page *page, *map_page;
+	struct ftl_p2l_ckpt_page_no_vss *page;
+	struct ftl_p2l_ckpt_page *map_page;
 	enum ftl_layout_region_type md_region = band->md->p2l_md_region;
 	uint64_t page_no;
 	uint64_t num_written_pages;
-	union ftl_md_vss *page_md_buf;
 
 	if (md_region < FTL_LAYOUT_REGION_TYPE_P2L_CKPT_MIN ||
 	    md_region > FTL_LAYOUT_REGION_TYPE_P2L_CKPT_MAX) {
 		return -EINVAL;
 	}
 
-	assert(band->md->iter.offset % FTL_NUM_LBA_IN_BLOCK == 0);
-	num_written_pages = band->md->iter.offset / FTL_NUM_LBA_IN_BLOCK;
+	assert(band->md->iter.offset % dev->xfer_size == 0);
+	num_written_pages = band->md->iter.offset / dev->xfer_size;
 
 	/* Associate band with md region before shutdown */
 	if (!band->p2l_map.p2l_ckpt) {
@@ -492,19 +496,17 @@ ftl_mngt_p2l_ckpt_restore_clean(struct ftl_band *band)
 	page_no = 0;
 
 	/* Restore P2L map up to last written page */
-	page_md_buf = ftl_md_get_vss_buffer(layout->md[md_region]);
 	page = ftl_md_get_buffer(layout->md[md_region]);
 
-	for (; page_no < num_written_pages; page_no++, page++, page_md_buf++) {
-		if (page_md_buf->p2l_ckpt.seq_id != band->md->seq) {
-			assert(page_md_buf->p2l_ckpt.seq_id == band->md->seq);
-		}
+	for (; page_no < num_written_pages; page_no++, page++) {
+		uint64_t band_offs = dev->xfer_size * page_no;
+		assert(page->metadata.p2l_ckpt.seq_id == band->md->seq);
 
 		/* Get the corresponding P2L map page */
-		map_page = ((struct ftl_p2l_ckpt_page *)band->p2l_map.band_map) + page_no;
+		map_page = ((struct ftl_p2l_ckpt_page *)band->p2l_map.band_map) + band_offs / FTL_NUM_LBA_IN_BLOCK;
 
 		/* Restore the page from P2L checkpoint */
-		*map_page = *page;
+		memcpy(((struct ftl_p2l_map_entry *)map_page) + band_offs % FTL_NUM_LBA_IN_BLOCK, page->map, dev->xfer_size * sizeof(struct ftl_p2l_map_entry));
 
 #if defined(DEBUG)
 		assert(ftl_bitmap_get(band->p2l_map.p2l_ckpt->bmp, page_no) == false);
@@ -512,7 +514,7 @@ ftl_mngt_p2l_ckpt_restore_clean(struct ftl_band *band)
 #endif
 	}
 
-	assert(page_md_buf->p2l_ckpt.seq_id < band->md->seq);
+	assert(page->metadata.p2l_ckpt.seq_id < band->md->seq);
 
 	return 0;
 }
@@ -532,8 +534,8 @@ ftl_mngt_p2l_ckpt_restore_shm_clean(struct ftl_band *band)
 	uint64_t page_no;
 	uint64_t num_written_pages;
 
-	assert(band->md->iter.offset % FTL_NUM_LBA_IN_BLOCK == 0);
-	num_written_pages = band->md->iter.offset / FTL_NUM_LBA_IN_BLOCK;
+	assert(band->md->iter.offset % dev->xfer_size == 0);
+	num_written_pages = band->md->iter.offset / dev->xfer_size;
 
 	/* Band was opened but no data was written */
 	if (band->md->iter.offset == 0) {

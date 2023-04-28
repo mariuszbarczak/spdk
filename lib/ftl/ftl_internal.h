@@ -12,6 +12,7 @@
 #include "spdk/uuid.h"
 
 #include "utils/ftl_bitmap.h"
+#include "utils/ftl_md.h"
 
 /* Marks address as invalid */
 #define FTL_ADDR_INVALID	((ftl_addr)-1)
@@ -110,6 +111,14 @@ struct ftl_p2l_sync_ctx {
 struct ftl_p2l_ckpt_page {
 	struct ftl_p2l_map_entry map[FTL_NUM_LBA_IN_BLOCK];
 };
+
+#define P2L_NO_VSS_COUNT_INCREASE 2
+struct ftl_p2l_ckpt_page_no_vss {
+	union ftl_md_vss metadata;
+	struct ftl_p2l_map_entry map[FTL_NUM_LBA_IN_BLOCK - sizeof(union ftl_md_vss) / sizeof(struct ftl_p2l_map_entry)];
+} __attribute__((packed));
+SPDK_STATIC_ASSERT(sizeof(struct ftl_p2l_ckpt_page_no_vss) == FTL_BLOCK_SIZE, "ftl_p2l_ckpt_page_no_vss incorrect size");
+
 
 struct ftl_p2l_ckpt;
 struct ftl_p2l_log;
