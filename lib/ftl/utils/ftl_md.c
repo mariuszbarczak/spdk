@@ -63,6 +63,18 @@ xfer_size(struct ftl_md *md)
 }
 
 static void
+ftl_md_create_huge(struct ftl_md *md, uint64_t vss_blksz)
+{
+	md->shm_fd = -1;
+	md->vss_data = NULL;
+	md->data = spdk_zmalloc(md->data_blocks * (FTL_BLOCK_SIZE + vss_blksz), FTL_BLOCK_SIZE, NULL, SPDK_ENV_SOCKET_ID_ANY, SPDK_MALLOC_DMA);
+
+	if (md->data && vss_blksz) {
+		md->vss_data = ((char *)md->data) + md->data_blocks * FTL_BLOCK_SIZE;
+	}
+}
+
+static void
 ftl_md_create_heap(struct ftl_md *md, uint64_t vss_blksz)
 {
 	md->shm_fd = -1;
@@ -71,6 +83,16 @@ ftl_md_create_heap(struct ftl_md *md, uint64_t vss_blksz)
 
 	if (md->data && vss_blksz) {
 		md->vss_data = ((char *)md->data) + md->data_blocks * FTL_BLOCK_SIZE;
+	}
+}
+
+static void
+ftl_md_destroy_huge(struct ftl_md *md)
+{
+	if (md->data) {
+		spdk_free(md->data);
+		md->data = NULL;
+		md->vss_data = NULL;
 	}
 }
 
@@ -282,6 +304,8 @@ struct ftl_md *ftl_md_create(struct spdk_ftl_dev *dev, uint64_t blocks,
 		if (flags & FTL_MD_CREATE_SHM) {
 			ftl_md_setup_obj(md, flags, name);
 			ftl_md_create_shm(md, vss_blksz, flags);
+		} else if (flags & FTL_MD_CREATE_HUGE) {
+			ftl_md_create_huge(md, vss_blksz);
 		} else {
 			assert((flags & FTL_MD_CREATE_HEAP) == FTL_MD_CREATE_HEAP);
 			ftl_md_create_heap(md, vss_blksz);
@@ -355,8 +379,12 @@ ftl_md_free_buf(struct ftl_md *md, int flags)
 	}
 
 	if (md->shm_fd < 0) {
-		assert(flags == 0);
-		ftl_md_destroy_heap(md);
+		if (flags & FTL_MD_DESTROY_HUGE) {
+			ftl_md_destroy_huge(md);
+		} else {
+			assert(flags == 0);
+			ftl_md_destroy_heap(md);
+		}
 	} else {
 		ftl_md_destroy_shm(md, flags);
 	}
