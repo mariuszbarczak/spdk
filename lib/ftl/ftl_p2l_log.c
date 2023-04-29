@@ -38,6 +38,8 @@ struct ftl_p2l_log {
 	struct ftl_mempool 		*page_pool;
 	uint64_t			entry_idx;
 	ftl_p2l_log_cb			cb_fn;
+	uint32_t			ref_cnt;
+	bool				in_use;
 };
 
 static void p2l_log_page_io(struct ftl_p2l_log *p2l, struct ftl_p2l_log_page_ctrl *ctrl);
@@ -92,7 +94,6 @@ p2l_log_get_page(struct ftl_p2l_log *p2l)
 	/* Initialize P2L header */
 	ctrl->page.hdr.p2l_ckpt.seq_id = p2l->seq_id;
 	ctrl->page.hdr.p2l_ckpt.count = 0;
-	ctrl->page.hdr.p2l_ckpt.p2l_checksum = 0; /* TODO calculate checksum */
 
 	/* Initialize the page control structure */
 	ctrl->p2l = p2l;
@@ -146,15 +147,34 @@ p2l_log_page_io_cb(int status, void *arg)
 	while ((io = TAILQ_FIRST(&ctrl->ios))) {
 		TAILQ_REMOVE(&ctrl->ios, io, queue_entry);
 		p2l->cb_fn(io);
+
+		assert(p2l->ref_cnt > 0);
+		p2l->ref_cnt--;
 	}
 
 	p2l_log_page_free(p2l, ctrl);
 }
 
+static uint32_t
+p2l_log_page_crc(struct ftl_p2l_log_page *page)
+{
+	uint32_t crc = 0;
+	void *buffer = page;
+	size_t size = sizeof(*page);
+	size_t offset = offsetof(struct ftl_p2l_log_page, hdr.p2l_ckpt.p2l_checksum);
+
+	crc = spdk_crc32c_update(buffer, offset, crc);
+	buffer += offset + sizeof(page->hdr.p2l_ckpt.p2l_checksum);
+	size -= offset + sizeof(page->hdr.p2l_ckpt.p2l_checksum);
+
+	return spdk_crc32c_update(buffer, size, crc);
+}
+
 static void
 p2l_log_page_io(struct ftl_p2l_log *p2l, struct ftl_p2l_log_page_ctrl *ctrl)
 {
-	ctrl->page.hdr.p2l_ckpt.p2l_checksum = spdk_crc32c_update(&ctrl->page, FTL_BLOCK_SIZE, 0); // FIXME
+	ctrl->page.hdr.p2l_ckpt.p2l_checksum = p2l_log_page_crc(&ctrl->page);
+
 	ftl_md_persist_entry(p2l->md, ctrl->entry_idx, &ctrl->page, NULL, p2l_log_page_io_cb,
 			     ctrl, &ctrl->md_ctx);
 }
@@ -170,8 +190,6 @@ p2l_log_add_io(struct ftl_p2l_log *p2l, struct ftl_p2l_log_page_ctrl *ctrl, stru
 	ctrl->page.items[i].seq_id = io->nv_cache_chunk->md->seq_id;
 	ctrl->page.items[i].addr = io->addr;
 
-	/* TODO Make sure P2L map is updated respectively */
-
 	TAILQ_REMOVE(&p2l->ios, io, queue_entry);
 	TAILQ_INSERT_TAIL(&ctrl->ios, io, queue_entry);
 }
@@ -179,6 +197,7 @@ p2l_log_add_io(struct ftl_p2l_log *p2l, struct ftl_p2l_log_page_ctrl *ctrl, stru
 void
 ftl_p2l_log_io(struct ftl_p2l_log *p2l, struct ftl_io *io)
 {
+	p2l->ref_cnt++;
 	TAILQ_INSERT_TAIL(&p2l->ios, io, queue_entry);
 }
 
@@ -284,6 +303,7 @@ ftl_p2l_log_acquire(struct spdk_ftl_dev *dev, uint64_t seq_id, ftl_p2l_log_cb cb
 	p2l->entry_idx = 0;
 	p2l->seq_id = seq_id;
 	p2l->cb_fn = cb;
+	p2l->in_use = true;
 
 	return p2l;
 }
@@ -293,9 +313,17 @@ ftl_p2l_log_release(struct spdk_ftl_dev *dev, struct ftl_p2l_log *p2l)
 {
 	assert(p2l);
 
-	/* TODO: Add assert if no ongoing IOs on the P2L log */
-	/* TODO: Add assert if the P2L log already open */
+	if (p2l->ref_cnt) {
+		FTL_ERRLOG(dev, "P2L Log release with ongoing IOs\n");
+		ftl_abort();
+	}
 
+	if (!p2l->in_use) {
+		FTL_ERRLOG(dev, "P2L Log release not acquired\n");
+		ftl_abort();
+	}
+
+	p2l->in_use = false;
 	TAILQ_REMOVE(&dev->p2l_ckpt.log.inuse, p2l, link);
 	TAILQ_INSERT_TAIL(&dev->p2l_ckpt.log.free, p2l, link);
 }
