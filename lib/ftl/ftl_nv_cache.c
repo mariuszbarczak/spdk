@@ -168,7 +168,8 @@ ftl_nv_cache_init(struct spdk_ftl_dev *dev)
 	}
 
 #define FTL_MAX_OPEN_CHUNKS 2
-	nv_cache->p2l_pool = ftl_mempool_create(FTL_MAX_OPEN_CHUNKS,
+#define FTL_MAX_COMPACTED_CHUNKS 2
+	nv_cache->p2l_pool = ftl_mempool_create(FTL_MAX_OPEN_CHUNKS + FTL_MAX_COMPACTED_CHUNKS,
 						nv_cache_p2l_map_pool_elem_size(nv_cache),
 						FTL_BLOCK_SIZE,
 						SPDK_ENV_SOCKET_ID_ANY);
@@ -177,7 +178,7 @@ ftl_nv_cache_init(struct spdk_ftl_dev *dev)
 	}
 
 	/* One entry per open chunk */
-	nv_cache->chunk_md_pool = ftl_mempool_create(FTL_MAX_OPEN_CHUNKS,
+	nv_cache->chunk_md_pool = ftl_mempool_create(FTL_MAX_OPEN_CHUNKS + FTL_MAX_COMPACTED_CHUNKS,
 				  sizeof(struct ftl_nv_cache_chunk_md),
 				  FTL_BLOCK_SIZE,
 				  SPDK_ENV_SOCKET_ID_ANY);
@@ -397,6 +398,8 @@ ftl_chunk_free_md_entry(struct ftl_nv_cache_chunk *chunk)
 	p2l_map->chunk_dma_md = NULL;
 }
 
+static void chunk_free_p2l_map(struct ftl_nv_cache_chunk *chunk);
+
 static void
 ftl_chunk_free(struct ftl_nv_cache_chunk *chunk)
 {
@@ -463,12 +466,12 @@ chunk_free_cb(int status, void *ctx)
 static void
 ftl_chunk_persist_free_state(struct ftl_nv_cache *nv_cache)
 {
-	int rc;
 	struct spdk_ftl_dev *dev = SPDK_CONTAINEROF(nv_cache, struct spdk_ftl_dev, nv_cache);
 	struct ftl_p2l_map *p2l_map;
 	struct ftl_md *md = dev->layout.md[FTL_LAYOUT_REGION_TYPE_NVC_MD];
 	struct ftl_layout_region *region = &dev->layout.region[FTL_LAYOUT_REGION_TYPE_NVC_MD];
 	struct ftl_nv_cache_chunk *tchunk, *chunk = NULL;
+	int rc;
 
 	TAILQ_FOREACH_SAFE(chunk, &nv_cache->needs_free_persist_list, entry, tchunk) {
 		p2l_map = &chunk->p2l_map;
@@ -539,6 +542,8 @@ chunk_compaction_advance(struct ftl_nv_cache_chunk *chunk, uint64_t num_blocks)
 	nv_cache->chunk_comp_count--;
 
 	compaction_stats_update(chunk);
+
+	chunk_free_p2l_map(chunk);
 
 	ftl_chunk_free(chunk);
 }
@@ -625,31 +630,68 @@ is_chunk_to_read(struct ftl_nv_cache_chunk *chunk)
 	return true;
 }
 
+static void
+read_chunk_p2l_map_cb(struct ftl_basic_rq *brq)
+{
+	struct ftl_nv_cache_chunk *chunk = brq->io.chunk;
+	struct ftl_nv_cache *nv_cache = chunk->nv_cache;
+
+	if (!brq->success) {
+		ftl_abort();
+	}
+
+	TAILQ_INSERT_HEAD(&nv_cache->chunk_comp_list, chunk, entry);
+}
+
+static int chunk_alloc_p2l_map(struct ftl_nv_cache_chunk *chunk);
+static int ftl_chunk_read_tail_md(struct ftl_nv_cache_chunk *chunk, struct ftl_basic_rq *brq,
+				  void (*cb)(struct ftl_basic_rq *brq), void *cb_ctx);
+
+static void
+read_chunk_p2l_map(struct ftl_nv_cache_chunk *chunk)
+{
+	int rc;
+
+	if (chunk_alloc_p2l_map(chunk)) {
+		ftl_abort();
+	}
+
+	rc = ftl_chunk_read_tail_md(chunk, &chunk->metadata_rq, read_chunk_p2l_map_cb, NULL);
+	if (rc) {
+		ftl_abort();
+	}
+}
+
+static void
+prepare_chunk_for_compaction(struct ftl_nv_cache *nv_cache)
+{
+	struct ftl_nv_cache_chunk *chunk = NULL;
+
+	if (TAILQ_EMPTY(&nv_cache->chunk_full_list)) {
+		return;
+	}
+
+	chunk = TAILQ_FIRST(&nv_cache->chunk_full_list);
+	TAILQ_REMOVE(&nv_cache->chunk_full_list, chunk, entry);
+	assert(chunk->md->write_pointer);
+
+	nv_cache->chunk_comp_count++;
+	read_chunk_p2l_map(chunk);
+}
+
+
 static struct ftl_nv_cache_chunk *
 get_chunk_for_compaction(struct ftl_nv_cache *nv_cache)
 {
 	struct ftl_nv_cache_chunk *chunk = NULL;
 
-	if (!TAILQ_EMPTY(&nv_cache->chunk_comp_list)) {
-		chunk = TAILQ_FIRST(&nv_cache->chunk_comp_list);
-		if (is_chunk_to_read(chunk)) {
-			return chunk;
-		}
-	}
-
-	if (!TAILQ_EMPTY(&nv_cache->chunk_full_list)) {
-		chunk = TAILQ_FIRST(&nv_cache->chunk_full_list);
-		TAILQ_REMOVE(&nv_cache->chunk_full_list, chunk, entry);
-
-		assert(chunk->md->write_pointer);
-	} else {
+	if (TAILQ_EMPTY(&nv_cache->chunk_comp_list)) {
 		return NULL;
 	}
 
-	if (spdk_likely(chunk)) {
-		assert(chunk->md->write_pointer != 0);
-		TAILQ_INSERT_HEAD(&nv_cache->chunk_comp_list, chunk, entry);
-		nv_cache->chunk_comp_count++;
+	chunk = TAILQ_FIRST(&nv_cache->chunk_comp_list);
+	if (!is_chunk_to_read(chunk)) {
+		return NULL;
 	}
 
 	return chunk;
@@ -877,6 +919,14 @@ compaction_process(struct ftl_nv_cache *nv_cache)
 	struct ftl_nv_cache_compactor *compactor;
 
 	if (!is_compaction_required(nv_cache)) {
+		return;
+	}
+
+	if (nv_cache->chunk_comp_count < FTL_MAX_COMPACTED_CHUNKS) {
+		prepare_chunk_for_compaction(nv_cache);
+	}
+
+	if (TAILQ_EMPTY(&nv_cache->chunk_comp_list)) {
 		return;
 	}
 
@@ -1754,8 +1804,6 @@ ftl_chunk_close(struct ftl_nv_cache_chunk *chunk)
 	ftl_chunk_basic_rq_write(chunk, brq);
 }
 
-static int ftl_chunk_read_tail_md(struct ftl_nv_cache_chunk *chunk, struct ftl_basic_rq *brq,
-				  void (*cb)(struct ftl_basic_rq *brq), void *cb_ctx);
 static void read_tail_md_cb(struct ftl_basic_rq *brq);
 static void recover_open_chunk_cb(struct ftl_basic_rq *brq);
 
