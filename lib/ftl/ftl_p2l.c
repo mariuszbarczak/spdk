@@ -435,7 +435,7 @@ ftl_mngt_p2l_ckpt_restore(struct ftl_band *band, uint32_t md_region, uint64_t se
 #endif
 
 	ftl_band_iter_init(band);
-	ftl_band_iter_set(band, (page_max + 1) * FTL_NUM_LBA_IN_BLOCK);
+	ftl_band_iter_set(band, (page_max + 1) * dev->xfer_size);
 
 	return 0;
 }
