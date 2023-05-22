@@ -24,12 +24,12 @@
  * create space for new user data.
  */
 
-#define FTL_NVC_VERSION_0	0
-#define FTL_NVC_VERSION_1	1
+#define FTL_NVC_VERSION_0 0
+#define FTL_NVC_VERSION_1 1
 
 #define FTL_NVC_VERSION_CURRENT FTL_NVC_VERSION_1
 
-#define FTL_NV_CACHE_NUM_COMPACTORS 8
+#define FTL_NV_CACHE_NUM_COMPACTORS 64
 
 /*
  * Parameters controlling nv cache write throttling.
@@ -42,24 +42,26 @@
  */
 
 /* Interval in milliseconds between write throttle updates. */
-#define FTL_NV_CACHE_THROTTLE_INTERVAL_MS	20
+#define FTL_NV_CACHE_THROTTLE_INTERVAL_MS 20
 /* Throttle modifier proportional gain */
-#define FTL_NV_CACHE_THROTTLE_MODIFIER_KP	20
+#define FTL_NV_CACHE_THROTTLE_MODIFIER_KP 20
 /* Min and max modifier values */
-#define FTL_NV_CACHE_THROTTLE_MODIFIER_MIN	-0.8
-#define FTL_NV_CACHE_THROTTLE_MODIFIER_MAX	0.5
+#define FTL_NV_CACHE_THROTTLE_MODIFIER_MIN -0.8
+#define FTL_NV_CACHE_THROTTLE_MODIFIER_MAX 0.5
 
 struct ftl_nvcache_restore;
 typedef void (*ftl_nv_cache_restore_fn)(struct ftl_nvcache_restore *, int, void *cb_arg);
 
-enum ftl_chunk_state {
+enum ftl_chunk_state
+{
 	FTL_CHUNK_STATE_FREE,
 	FTL_CHUNK_STATE_OPEN,
 	FTL_CHUNK_STATE_CLOSED,
 	FTL_CHUNK_STATE_MAX
 };
 
-struct ftl_nv_cache_chunk_md {
+struct ftl_nv_cache_chunk_md
+{
 	/* Sequence id of writing */
 	uint64_t seq_id;
 
@@ -98,7 +100,8 @@ struct ftl_nv_cache_chunk_md {
 SPDK_STATIC_ASSERT(FTL_NV_CACHE_CHUNK_MD_SIZE == FTL_BLOCK_SIZE,
 		   "FTL NV Chunk metadata size is invalid");
 
-struct ftl_nv_cache_chunk {
+struct ftl_nv_cache_chunk
+{
 	struct ftl_nv_cache *nv_cache;
 
 	struct ftl_nv_cache_chunk_md *md;
@@ -112,7 +115,8 @@ struct ftl_nv_cache_chunk {
 	/* Metadata request */
 	struct ftl_basic_rq metadata_rq;
 
-	TAILQ_ENTRY(ftl_nv_cache_chunk) entry;
+	TAILQ_ENTRY(ftl_nv_cache_chunk)
+	entry;
 
 	/* This flag is used to indicate chunk is used in recovery */
 	bool recovery;
@@ -130,14 +134,17 @@ struct ftl_nv_cache_chunk {
 	struct ftl_p2l_log *p2l_log;
 };
 
-struct ftl_nv_cache_compactor {
+struct ftl_nv_cache_compactor
+{
 	struct ftl_nv_cache *nv_cache;
 	struct ftl_rq *rq;
-	TAILQ_ENTRY(ftl_nv_cache_compactor) entry;
+	TAILQ_ENTRY(ftl_nv_cache_compactor)
+	entry;
 	struct spdk_bdev_io_wait_entry bdev_io_wait;
 };
 
-struct ftl_nv_cache {
+struct ftl_nv_cache
+{
 	/* Flag indicating halt request */
 	bool halt;
 
@@ -181,26 +188,32 @@ struct ftl_nv_cache {
 	struct ftl_nv_cache_chunk *chunk_current;
 
 	/* Free chunks list */
-	TAILQ_HEAD(, ftl_nv_cache_chunk) chunk_free_list;
+	TAILQ_HEAD(, ftl_nv_cache_chunk)
+	chunk_free_list;
 	uint64_t chunk_free_count;
 
 	/* Open chunks list */
-	TAILQ_HEAD(, ftl_nv_cache_chunk) chunk_open_list;
+	TAILQ_HEAD(, ftl_nv_cache_chunk)
+	chunk_open_list;
 	uint64_t chunk_open_count;
 
 	/* Full chunks list */
-	TAILQ_HEAD(, ftl_nv_cache_chunk) chunk_full_list;
+	TAILQ_HEAD(, ftl_nv_cache_chunk)
+	chunk_full_list;
 	uint64_t chunk_full_count;
 
 	/* Chunks being compacted */
-	TAILQ_HEAD(, ftl_nv_cache_chunk) chunk_comp_list;
+	TAILQ_HEAD(, ftl_nv_cache_chunk)
+	chunk_comp_list;
 	uint64_t chunk_comp_count;
 
 	/* Chunks being freed */
-	TAILQ_HEAD(, ftl_nv_cache_chunk) needs_free_persist_list;
+	TAILQ_HEAD(, ftl_nv_cache_chunk)
+	needs_free_persist_list;
 	uint64_t chunk_free_persist_count;
 
-	TAILQ_HEAD(, ftl_nv_cache_compactor) compactor_list;
+	TAILQ_HEAD(, ftl_nv_cache_compactor)
+	compactor_list;
 	uint64_t compaction_active_count;
 	uint64_t chunk_compaction_threshold;
 	uint64_t user_wr_limit;
@@ -216,14 +229,16 @@ struct ftl_nv_cache {
 
 #define FTL_NV_CACHE_COMPACTION_SMA_N (FTL_NV_CACHE_NUM_COMPACTORS * 2)
 	/* Circular buffer holding values for calculating compaction SMA */
-	struct compaction_bw_stats {
+	struct compaction_bw_stats
+	{
 		double buf[FTL_NV_CACHE_COMPACTION_SMA_N];
 		ptrdiff_t first;
 		size_t count;
 		double sum;
 	} compaction_recent_bw;
 
-	struct {
+	struct
+	{
 		uint64_t interval_tsc;
 		uint64_t start_tsc;
 		uint64_t blocks_submitted;
@@ -286,8 +301,8 @@ void ftl_mngt_nv_cache_restore_l2p(struct spdk_ftl_dev *dev, struct ftl_mngt_pro
 				   ftl_chunk_md_cb cb, void *cb_ctx);
 
 struct ftl_nv_cache_chunk *ftl_nv_cache_get_chunk_from_addr(struct spdk_ftl_dev *dev,
-		ftl_addr addr);
+							    ftl_addr addr);
 
 uint64_t ftl_nv_cache_acquire_trim_seq_id(struct ftl_nv_cache *nv_cache);
 
-#endif  /* FTL_NV_CACHE_H */
+#endif /* FTL_NV_CACHE_H */
