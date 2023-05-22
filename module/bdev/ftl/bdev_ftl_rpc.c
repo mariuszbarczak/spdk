@@ -261,7 +261,6 @@ _rpc_bdev_ftl_get_stats(void *cntx)
 			spdk_json_write_named_object_begin(w, "l2p");
 			break;
 		default:
-			assert(false);
 			continue;
 		}
 

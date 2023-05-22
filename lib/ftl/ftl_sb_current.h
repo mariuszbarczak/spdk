@@ -32,8 +32,11 @@ struct ftl_superblock {
 	/* Maximum IO depth per band relocate */
 	uint64_t			max_reloc_qdepth;
 
+	/* Maximum numbers of user blocks scheduled to the cache at time, the unint is in blocks*/
+	uint64_t			user_wr_limit;
+
 	/* Reserved field */
-	uint8_t				reserved3[16];
+	uint8_t				reserved3[8];
 
 	/* Last L2P checkpoint +1 (i.e. min_seq_id, 0:no ckpt) */
 	uint64_t			ckpt_seq_id;

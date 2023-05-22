@@ -152,6 +152,9 @@ ftl_nv_cache_init(struct spdk_ftl_dev *dev)
 	}
 	assert(offset <= nvc_data_offset(nv_cache) + nvc_data_blocks(nv_cache));
 
+	/* Get write user limit and save in cache structure */
+	nv_cache->user_wr_limit = dev->sb->user_wr_limit;
+
 	/* Start compaction when full chunks exceed given % of entire chunks */
 	nv_cache->chunk_compaction_threshold = nv_cache->chunk_count *
 					       dev->conf.nv_cache.chunk_compaction_threshold / 100;
@@ -1120,11 +1123,20 @@ ftl_nv_cache_pin_cb(struct spdk_ftl_dev *dev, int status, struct ftl_l2p_pin_ctx
 	ftl_trace_submission(io->dev, io, io->addr, io->num_blocks);
 
 	dev->nv_cache.nvc_desc->ops.write(io);
+
+	dev->stats.entries[FTL_STATS_TYPE_USER_IN_PROGRESS].write.blocks += io->num_blocks;
+	dev->stats.entries[FTL_STATS_TYPE_USER_IN_PROGRESS].write.ios++;
 }
 
 void
 ftl_nv_cache_write_complete(struct ftl_io *io, bool success)
 {
+	struct spdk_ftl_dev *dev = io->dev;
+
+	assert(dev->stats.entries[FTL_STATS_TYPE_USER_IN_PROGRESS].write.blocks >= io->num_blocks);
+	dev->stats.entries[FTL_STATS_TYPE_USER_IN_PROGRESS].write.blocks -= io->num_blocks;
+	dev->stats.entries[FTL_STATS_TYPE_USER_IN_PROGRESS].write.ios--;
+
 	if (spdk_unlikely(!success)) {
 		FTL_ERRLOG(io->dev, "Non-volatile cache write failed at %"PRIx64"\n",
 			   io->addr);
@@ -1338,6 +1350,10 @@ bool
 ftl_nv_cache_throttle(struct spdk_ftl_dev *dev)
 {
 	struct ftl_nv_cache *nv_cache = &dev->nv_cache;
+
+	if (dev->stats.entries[FTL_STATS_TYPE_USER_IN_PROGRESS].write.blocks >= nv_cache->user_wr_limit) {
+		return true;
+	}
 
 	if (dev->nv_cache.throttle.blocks_submitted >= nv_cache->throttle.blocks_submitted_limit ||
 	    ftl_nv_cache_full(nv_cache)) {

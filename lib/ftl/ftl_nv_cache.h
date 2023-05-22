@@ -203,6 +203,7 @@ struct ftl_nv_cache {
 	TAILQ_HEAD(, ftl_nv_cache_compactor) compactor_list;
 	uint64_t compaction_active_count;
 	uint64_t chunk_compaction_threshold;
+	uint64_t user_wr_limit;
 
 	struct ftl_nv_cache_chunk *chunks;
 

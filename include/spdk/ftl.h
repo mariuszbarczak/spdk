@@ -46,6 +46,7 @@ struct ftl_stats_entry {
 
 enum ftl_stats_type {
 	FTL_STATS_TYPE_USER = 0,
+	FTL_STATS_TYPE_USER_IN_PROGRESS,
 	FTL_STATS_TYPE_CMP,
 	FTL_STATS_TYPE_GC,
 	FTL_STATS_TYPE_MD_BASE,

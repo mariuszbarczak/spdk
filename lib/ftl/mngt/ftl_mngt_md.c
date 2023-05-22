@@ -354,7 +354,7 @@ ftl_mngt_init_default_sb(struct spdk_ftl_dev *dev, struct ftl_mngt_process *mngt
 
 	/* Max 16 IO depth per band relocate */
 	sb->max_reloc_qdepth = 16;
-
+	sb->user_wr_limit = 4096;
 	sb->overprovisioning = dev->conf.overprovisioning;
 
 	ftl_band_init_gc_iter(dev);
