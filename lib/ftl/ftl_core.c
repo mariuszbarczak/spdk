@@ -512,7 +512,7 @@ spdk_ftl_unmap(struct spdk_ftl_dev *dev, struct ftl_io *io, struct spdk_io_chann
 	return rc;
 }
 
-#define FTL_IO_QUEUE_BATCH 16
+#define FTL_IO_QUEUE_BATCH 1
 int
 ftl_io_channel_poll(void *arg)
 {
