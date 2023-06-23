@@ -316,7 +316,7 @@ static const struct ftl_mngt_process_desc desc_persist = {
 void
 ftl_mngt_persist_md(struct spdk_ftl_dev *dev, struct ftl_mngt_process *mngt)
 {
-	ftl_mngt_call_process(mngt, &desc_persist);
+	ftl_mngt_call_process(mngt, &desc_persist, NULL);
 }
 
 /*
@@ -337,7 +337,7 @@ static const struct ftl_mngt_process_desc desc_fast_persist = {
 void
 ftl_mngt_fast_persist_md(struct spdk_ftl_dev *dev, struct ftl_mngt_process *mngt)
 {
-	ftl_mngt_call_process(mngt, &desc_fast_persist);
+	ftl_mngt_call_process(mngt, &desc_fast_persist, NULL);
 }
 
 void
@@ -573,9 +573,9 @@ shm_retry:
 
 	/* Initialize the superblock */
 	if (dev->conf.mode & SPDK_FTL_MODE_CREATE) {
-		ftl_mngt_call_process(mngt, &desc_init_sb);
+		ftl_mngt_call_process(mngt, &desc_init_sb, NULL);
 	} else {
-		ftl_mngt_call_process(mngt, &desc_restore_sb);
+		ftl_mngt_call_process(mngt, &desc_restore_sb, NULL);
 	}
 }
 
@@ -691,7 +691,7 @@ static const struct ftl_mngt_process_desc desc_restore = {
 void
 ftl_mngt_restore_md(struct spdk_ftl_dev *dev, struct ftl_mngt_process *mngt)
 {
-	ftl_mngt_call_process(mngt, &desc_restore);
+	ftl_mngt_call_process(mngt, &desc_restore, NULL);
 }
 
 void

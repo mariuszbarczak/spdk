@@ -87,7 +87,8 @@ DEFINE_STUB(ftl_md_destroy_region_flags, int, (struct spdk_ftl_dev *dev, int reg
 DEFINE_STUB(ftl_md_destroy_shm_flags, int, (struct spdk_ftl_dev *dev), 0);
 DEFINE_STUB_V(ftl_md_destroy, (struct ftl_md *md, int flags));
 DEFINE_STUB_V(ftl_mngt_call_process, (struct ftl_mngt_process *mngt,
-				      const struct ftl_mngt_process_desc *process));
+				      const struct ftl_mngt_process_desc *process,
+				      void *init_ctx));
 DEFINE_STUB(ftl_md_get_buffer, void *, (struct ftl_md *md), NULL);
 DEFINE_STUB(ftl_layout_setup_superblock, int, (struct spdk_ftl_dev *dev), 0);
 
