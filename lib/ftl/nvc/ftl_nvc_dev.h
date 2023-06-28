@@ -109,6 +109,20 @@ struct ftl_nv_cache_device_ops {
 	 *
 	 */
 	void (*write)(struct ftl_io *io);
+
+	/**
+	* @brief Recover open chunk
+	*
+	* @param dev ftl device
+	* @param mngt FTL management precess handler
+	* @param chunk NV cache chunk to be recovered
+	*
+	* @note When the recovery finished successfully then the procedure
+	* shall invoke ftl_mngt_next_step(mngt). If a failure occurred then
+	* the process shall call ftl_mngt_fail_step(mngt)
+	*/
+	void (*recover_open_chunk)(struct spdk_ftl_dev *dev, struct ftl_mngt_process *mngt,
+				   struct ftl_nv_cache_chunk *chunk);
 };
 
 /**

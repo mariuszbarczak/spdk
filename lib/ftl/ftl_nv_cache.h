@@ -52,16 +52,14 @@
 struct ftl_nvcache_restore;
 typedef void (*ftl_nv_cache_restore_fn)(struct ftl_nvcache_restore *, int, void *cb_arg);
 
-enum ftl_chunk_state
-{
+enum ftl_chunk_state {
 	FTL_CHUNK_STATE_FREE,
 	FTL_CHUNK_STATE_OPEN,
 	FTL_CHUNK_STATE_CLOSED,
 	FTL_CHUNK_STATE_MAX
 };
 
-struct ftl_nv_cache_chunk_md
-{
+struct ftl_nv_cache_chunk_md {
 	/* Sequence id of writing */
 	uint64_t seq_id;
 
@@ -100,8 +98,7 @@ struct ftl_nv_cache_chunk_md
 SPDK_STATIC_ASSERT(FTL_NV_CACHE_CHUNK_MD_SIZE == FTL_BLOCK_SIZE,
 		   "FTL NV Chunk metadata size is invalid");
 
-struct ftl_nv_cache_chunk
-{
+struct ftl_nv_cache_chunk {
 	struct ftl_nv_cache *nv_cache;
 
 	struct ftl_nv_cache_chunk_md *md;
@@ -134,8 +131,7 @@ struct ftl_nv_cache_chunk
 	struct ftl_p2l_log *p2l_log;
 };
 
-struct ftl_nv_cache_compactor
-{
+struct ftl_nv_cache_compactor {
 	struct ftl_nv_cache *nv_cache;
 	struct ftl_rq *rq;
 	TAILQ_ENTRY(ftl_nv_cache_compactor)
@@ -143,8 +139,7 @@ struct ftl_nv_cache_compactor
 	struct spdk_bdev_io_wait_entry bdev_io_wait;
 };
 
-struct ftl_nv_cache
-{
+struct ftl_nv_cache {
 	/* Flag indicating halt request */
 	bool halt;
 
@@ -229,16 +224,14 @@ struct ftl_nv_cache
 
 #define FTL_NV_CACHE_COMPACTION_SMA_N (FTL_NV_CACHE_NUM_COMPACTORS * 2)
 	/* Circular buffer holding values for calculating compaction SMA */
-	struct compaction_bw_stats
-	{
+	struct compaction_bw_stats {
 		double buf[FTL_NV_CACHE_COMPACTION_SMA_N];
 		ptrdiff_t first;
 		size_t count;
 		double sum;
 	} compaction_recent_bw;
 
-	struct
-	{
+	struct {
 		uint64_t interval_tsc;
 		uint64_t start_tsc;
 		uint64_t blocks_submitted;
@@ -261,6 +254,8 @@ void ftl_chunk_map_set_lba(struct ftl_nv_cache_chunk *chunk,
 uint64_t ftl_chunk_map_get_lba(struct ftl_nv_cache_chunk *chunk, uint64_t offset);
 
 void ftl_nv_cache_set_addr(struct spdk_ftl_dev *dev, uint64_t lba, ftl_addr addr);
+
+void ftl_nv_cache_chunk_set_addr(struct ftl_nv_cache_chunk *chunk, uint64_t lba, ftl_addr addr);
 
 int ftl_nv_cache_save_state(struct ftl_nv_cache *nv_cache);
 
@@ -301,7 +296,7 @@ void ftl_mngt_nv_cache_restore_l2p(struct spdk_ftl_dev *dev, struct ftl_mngt_pro
 				   ftl_chunk_md_cb cb, void *cb_ctx);
 
 struct ftl_nv_cache_chunk *ftl_nv_cache_get_chunk_from_addr(struct spdk_ftl_dev *dev,
-							    ftl_addr addr);
+		ftl_addr addr);
 
 uint64_t ftl_nv_cache_acquire_trim_seq_id(struct ftl_nv_cache *nv_cache);
 
