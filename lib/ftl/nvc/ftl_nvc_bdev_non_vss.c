@@ -152,7 +152,17 @@ recovery_chunk_recover_p2l_map_cb(void *cb_arg, int status)
 
 static int
 recovery_chunk_recover_p2l_map_read_cb(struct spdk_ftl_dev *dev, void *cb_arg,
-				       uint64_t lba, ftl_addr addr, uint64_t seq_id) {}
+				       uint64_t lba, ftl_addr addr, uint64_t seq_id)
+{
+	struct ftl_mngt_process *mngt = cb_arg;
+	struct recovery_chunk_ctx *ctx = ftl_mngt_get_process_ctx(mngt);
+	struct ftl_nv_cache_chunk *chunk = ctx->chunk;
+
+	ftl_nv_cache_chunk_set_addr(chunk, lba, addr);
+
+	/* TODO We could stop scanning when getting all LBA within the chunk */
+	return 0;
+}
 
 
 static void
@@ -162,7 +172,7 @@ recovery_chunk_recover_p2l_map(struct spdk_ftl_dev *dev, struct ftl_mngt_process
 	struct ftl_nv_cache_chunk *chunk = ctx->chunk;
 	int rc;
 
-	rc = ftl_p2l_log_read(dev, chunk->md->p2l_type, chunk->md->seq_id,
+	rc = ftl_p2l_log_read(dev, chunk->md->p2l_log_type, chunk->md->seq_id,
 			      recovery_chunk_recover_p2l_map_cb, mngt,
 			      recovery_chunk_recover_p2l_map_read_cb);
 
@@ -197,7 +207,7 @@ static void
 recover_open_chunk(struct spdk_ftl_dev *dev, struct ftl_mngt_process *mngt,
 		   struct ftl_nv_cache_chunk *chunk)
 {
-	ftl_mngt_init_and_call_process(mngt, &desc_chunk_recovery, chunk);
+	ftl_mngt_call_process(mngt, &desc_chunk_recovery, chunk);
 }
 
 struct ftl_nv_cache_device_desc nvc_bdev_non_vss = {
