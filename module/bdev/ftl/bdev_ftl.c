@@ -173,11 +173,12 @@ bdev_ftl_submit_request(struct spdk_io_channel *ch, struct spdk_bdev_io *bdev_io
 static bool
 bdev_ftl_io_type_supported(void *ctx, enum spdk_bdev_io_type io_type)
 {
+	/* TODO: temporary disabling of SPDK_BDEV_IO_TYPE_UNMAP: for non-vss NV cache */
+
 	switch (io_type) {
 	case SPDK_BDEV_IO_TYPE_READ:
 	case SPDK_BDEV_IO_TYPE_WRITE:
 	case SPDK_BDEV_IO_TYPE_FLUSH:
-	case SPDK_BDEV_IO_TYPE_UNMAP:
 		return true;
 	default:
 		return false;

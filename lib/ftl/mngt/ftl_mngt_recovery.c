@@ -798,6 +798,12 @@ ftl_mngt_recover_unmap_map(struct spdk_ftl_dev *dev, struct ftl_mngt_process *mn
 {
 	struct ftl_md *md = dev->layout.md[FTL_LAYOUT_REGION_TYPE_TRIM_MD];
 
+	/*
+	 * TODO Handle trim recovery in non-vss NV cache mode
+	 */
+	ftl_mngt_skip_step(mngt);
+	return;
+
 	if (ftl_fast_recovery(dev)) {
 		FTL_DEBUGLOG(dev, "SHM: skipping unmap map recovery\n");
 		ftl_mngt_next_step(mngt);

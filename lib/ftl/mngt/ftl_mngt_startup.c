@@ -307,6 +307,12 @@ ftl_mngt_process_unmap(struct spdk_ftl_dev *dev, struct ftl_mngt_process *mngt)
 	struct ftl_unmap_ctx *ctx = ftl_mngt_get_caller_ctx(mngt);
 	int rc;
 
+	/*
+	* TODO Handle trim recovery in non-vss NV cache mode
+	*/
+	ftl_mngt_fail_step(mngt);
+	return;
+
 	if (!dev->ioch) {
 		ftl_mngt_fail_step(mngt);
 		return;
